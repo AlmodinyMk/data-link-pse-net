@@ -38,3 +38,6 @@ python3 pse_net_plain.py receive --port 5050 --out received.bin
 
 # 5. Send file across TCP network (BCD mode)
 python3 pse_net_plain.py send input.bin --host 127.0.0.1 --port 5050 --mode bcd
+
+[![PSE-Net Plain CI](https://github.com/AlmodinyMk/data-link-pse-net/actions/workflows/python-app.yml/badge.svg)](https://github.com/AlmodinyMk/data-link-pse-net/actions/workflows/python-app.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23846190.svg)](https://doi.org/10.5281/zenodo.23846190)
