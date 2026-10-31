@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+License : Creative Commons Attribution Non Commercial No Derivatives 4.0 International.
 pse_net_plain.py — Weighted Pair-Symbol Encoding (no encryption): input -> encoding -> network -> decoding -> output
 
 Pipeline
