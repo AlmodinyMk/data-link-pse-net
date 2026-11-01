@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: Build
         run: cargo build --release --locked
@@ -29,7 +29,7 @@ jobs:
     name: test (ubuntu, Rust 1.75 MSRV)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.75
       - run: cargo test --release --locked
 
@@ -37,7 +37,7 @@ jobs:
     name: rustfmt + clippy (Rust 1.75)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.75
         with:
           components: rustfmt, clippy
@@ -51,14 +51,65 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: cargo build --release --locked
-      - name: TCP, streaming, TLS, concurrency
-        run: bash scripts/integration_test.sh
+
+      - name: Plain TCP - single frame and 20 MB stream
+        run: |
+          set -e
+          B=./target/release/pse_net; T=$(mktemp -d)
+          head -c 5000 /dev/urandom > $T/small.bin
+          head -c 20000000 /dev/urandom > $T/big.bin
+          $B receive --port 7001 --out-dir $T/r > $T/srv.log 2>&1 & P=$!
+          trap 'kill $P 2>/dev/null || true' EXIT
+          sleep 1
+          $B send --port 7001 $T/small.bin
+          $B send --port 7001 $T/big.bin
+          sleep 1
+          n=0; for f in $T/r/*.bin; do if cmp -s $f $T/small.bin || cmp -s $f $T/big.bin; then n=$((n+1)); fi; done
+          echo "identical files: $n/2"; test "$n" = 2
+
+      - name: TLS - transfer, and rejection of an unknown CA
+        run: |
+          set -e
+          B=./target/release/pse_net; T=$(mktemp -d)
+          head -c 3000000 /dev/urandom > $T/d.bin
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout $T/ca.key -out $T/ca.pem -days 1 -subj "/CN=Test CA" 2>/dev/null
+          openssl req -newkey rsa:2048 -nodes -keyout $T/srv.key -out $T/srv.csr -subj "/CN=localhost" 2>/dev/null
+          printf "subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n" > $T/ext.cnf
+          openssl x509 -req -in $T/srv.csr -CA $T/ca.pem -CAkey $T/ca.key -CAcreateserial -out $T/srv.pem -days 1 -extfile $T/ext.cnf 2>/dev/null
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout $T/o.key -out $T/o.pem -days 1 -subj "/CN=Other" 2>/dev/null
+          $B receive --port 7002 --out-dir $T/r --tls-cert $T/srv.pem --tls-key $T/srv.key > $T/srv.log 2>&1 & P=$!
+          trap 'kill $P 2>/dev/null || true' EXIT
+          sleep 1
+          $B send --port 7002 $T/d.bin --tls-ca $T/ca.pem --server-name localhost
+          sleep 1; cmp $T/r/*.bin $T/d.bin
+          if $B send --port 7002 $T/d.bin --tls-ca $T/o.pem --server-name localhost; then echo "unknown CA was accepted"; exit 1; fi
+          echo "unknown CA rejected"
+
       - name: Rust <-> Python wire compatibility
-        run: bash scripts/interop_test.sh
+        run: |
+          set -e
+          B=./target/release/pse_net; T=$(mktemp -d)
+          head -c 300000 /dev/urandom > $T/d.bin
+          $B receive --port 7101 --out-dir $T/r > $T/srv.log 2>&1 & P=$!
+          python pse_net_plain.py receive --port 7102 --out $T/py.bin --once > $T/py.log 2>&1 & Q=$!
+          trap 'kill $P $Q 2>/dev/null || true' EXIT
+          sleep 1
+          python pse_net_plain.py send --port 7101 --mode bcd $T/d.bin
+          python pse_net_plain.py send --port 7101 --mode raw $T/d.bin
+          sleep 1
+          n=0; for f in $T/r/*.bin; do if cmp -s $f $T/d.bin; then n=$((n+1)); fi; done
+          echo "python -> rust identical: $n/2"; test "$n" = 2
+          $B send --port 7102 $T/d.bin --chunk-kb 4096
+          sleep 1; cmp $T/py.bin $T/d.bin && echo "rust -> python identical"
+          python pse_net_plain.py selftest
+
