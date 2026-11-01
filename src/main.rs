@@ -10,25 +10,23 @@
 //   2. cargo build --release      (binary: target/release/pse_net)
 //      cargo test  --release      (unit tests + loopback network tests)
 //
-// ---------------------------------- Cargo.toml --------------------------------------
-// [package]
-// name = "pse_net"
-// version = "0.3.0"
-// edition = "2021"
-// description = "Weighted Pair-Symbol Encoding: codec, framing and network transport (TCP / TLS)"
-// license = "MIT"
-// rust-version = "1.75"
-// repository = "https://github.com/AlmodinyMk/data-link-pse-net"
-// 
-// [dependencies]
-// rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-// rustls-pemfile = "2"
-// 
-// [profile.release]
-// opt-level = 3
-// lto = true
 // -------------------------------------------------------------------------------------
-//
+//[package]
+name = "pse_net"
+version = "0.3.0"
+edition = "2021"
+description = "Weighted Pair-Symbol Encoding: codec, framing and network transport (TCP / TLS)"
+license = "MIT"
+rust-version = "1.75"
+repository = "https://github.com/AlmodinyMk/data-link-pse-net"
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
 // Sections in this file:
 //   1. mod codec   — rules R1-R6, ladder table, block numbers, BCD digits
 //   2. mod frame   — PSE2 frame, CRC-32, length validation
