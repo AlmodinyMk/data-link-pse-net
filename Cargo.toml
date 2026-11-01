@@ -1,0 +1,16 @@
+[package]
+name = "pse_net"
+version = "0.3.0"
+edition = "2021"
+description = "Weighted Pair-Symbol Encoding: codec, framing and network transport (TCP / TLS)"
+license = "MIT"
+rust-version = "1.75"
+repository = "https://github.com/AlmodinyMk/data-link-pse-net"
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
