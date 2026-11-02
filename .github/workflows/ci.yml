@@ -113,3 +113,58 @@ jobs:
           sleep 1; cmp $T/py.bin $T/d.bin && echo "rust -> python identical"
           python pse_net_plain.py selftest
 
+  netem:
+    name: real packet loss, duplication, reordering (netem)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: cargo build --release --locked
+
+      - name: Enable netem on loopback (5% loss, 2% duplicate, 25% reorder, 10 ms +- 5 ms delay)
+        id: netem
+        run: |
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)" > /dev/null 2>&1 || true
+          sudo modprobe sch_netem 2>/dev/null || true
+          if sudo tc qdisc add dev lo root netem delay 10ms 5ms loss 5% duplicate 2% reorder 25% 50%; then
+            tc qdisc show dev lo
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::netem is not available on this runner; the lossy-network test was skipped"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Transfers over the lossy network (TCP recovers, protocol verifies)
+        if: steps.netem.outputs.enabled == 'true'
+        run: |
+          set -e
+          B=./target/release/pse_net; T=$(mktemp -d)
+          head -c 5000000 /dev/urandom > $T/big.bin
+          head -c 200000 /dev/urandom > $T/py.bin
+          $B receive --port 7701 --out-dir $T/r > $T/srv.log 2>&1 & P=$!
+          trap 'kill $P 2>/dev/null || true; sudo tc qdisc del dev lo root 2>/dev/null || true' EXIT
+          sleep 2
+          for mode in bcd raw; do
+            $B send --port 7701 $T/big.bin --mode $mode --chunk-kb 64
+          done
+          for i in $(seq 1 20); do
+            head -c $((1000 + i * 997)) /dev/urandom > $T/s$i.bin
+            $B send --port 7701 $T/s$i.bin --chunk-kb 1
+          done
+          python pse_net_plain.py send --port 7701 --mode bcd $T/py.bin
+          sleep 2
+          n=0
+          for f in $T/r/*.bin; do
+            for o in $T/big.bin $T/py.bin $T/s*.bin; do
+              if cmp -s "$f" "$o"; then n=$((n+1)); break; fi
+            done
+          done
+          echo "identical files: $n/23"
+          test "$n" = 23
+          test -z "$(ls $T/r/*.part 2>/dev/null)"
